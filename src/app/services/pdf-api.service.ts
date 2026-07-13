@@ -14,6 +14,11 @@ export interface DocumentDto {
 export interface SaveFieldsRequest  { documentId: number; fields: PlacedField[]; }
 export interface SaveFieldsResponse { success: boolean; message?: string; }
 export interface GenerateRequest    { documentId: number; fields: PlacedField[]; }
+export interface SubmitFieldDataRequest {
+  documentId: number;
+  values: Record<string, string>; // fieldId -> typed value
+  flatten?: boolean;
+}
 
 @Injectable({ providedIn: 'root' })
 export class PdfApiService {
@@ -41,4 +46,9 @@ export class PdfApiService {
       URL.revokeObjectURL(url);
     });
   }
+  /** "Submit" button — sends typed field values, gets back the filled PDF. */
+  submit(req: SubmitFieldDataRequest): Observable<Blob> {
+    return this.http.post(`${this.base}/submit`, req, { responseType: 'blob' });
+  }
+  
 }

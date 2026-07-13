@@ -55,9 +55,9 @@ import { PlacedField } from '../../models/placed-field';
         </div>
 
         <div class="hdr-right">
-          <button class="btn sec" (click)="save()" [disabled]="saving()">
+          <!-- <button class="btn sec" (click)="save()" [disabled]="saving()">
             {{ saving() ? 'Saving…' : 'Save' }}
-          </button>
+          </button> -->
           <button class="btn pri" (click)="generate()" [disabled]="generating()">
             {{ generating() ? 'Generating…' : 'Generate PDF' }}
           </button>
@@ -186,7 +186,10 @@ export class PdfEditorComponent implements OnInit {
   readonly isErr      = signal(false);
 
   private docId = signal<number | null>(null);
+  get documentId(): number | null { return this.docId(); }
 
+  // fieldId -> whatever the user typed into that field in your on-screen editor
+  fieldValues: Record<string, string> = {};
   /** Fields visible on the current page only */
   readonly pageFields = computed(() =>
     this.fieldSvc.fieldsByPage().get(this.viewerSvc.currentPage()) ?? []
@@ -220,7 +223,7 @@ export class PdfEditorComponent implements OnInit {
           this.pdfSrc.set(this.createBlankPdfUrl(doc.pageCount || this.inferPageCount(doc.fields)));
         }
 
-        this.fieldSvc.setFields(doc.fields);
+        // this.fieldSvc.setFields(doc.fields);
         this.loading.set(false);
         this.toast('Document loaded successfully.');
       },
@@ -246,9 +249,11 @@ export class PdfEditorComponent implements OnInit {
   generate(): void {
     const id = this.docId();
     if (!id) return;
+    this.save();
     this.generating.set(true);
     this.apiSvc.downloadPdf(id, this.fieldSvc.getFieldsForSave());
     this.toast('Generating PDF…');
+    this.loadDocument(id); 
     setTimeout(() => this.generating.set(false), 3500);
   }
 
