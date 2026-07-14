@@ -26,6 +26,15 @@ import { PlacedField } from '../../models/placed-field';
  *   ├──────────┴──────────────────────┴────────────┤
  *   │              Status bar                      │
  *   └─────────────────────────────────────────────┘
+ *   Two stages, driven by whether the loaded PDF has already been generated:
+ *   - Design (generated() === false): drag/drop/resize boxes, Save, Generate.
+ *   - Fill   (generated() === true):  the PDF itself has real AcroForm
+ *                                     widgets, which ngx-extended-pdf-viewer
+ *                                     renders natively and lets the user type
+ *                                     into directly. We just read those values
+ *                                     back out via [formData]/(formDataChange)
+ *                                     — no custom overlay needed.
+
  */
 @Component({
   selector: 'app-pdf-editor',
@@ -43,7 +52,7 @@ import { PlacedField } from '../../models/placed-field';
           <span *ngIf="docName()" class="doc-name">— {{ docName() }}</span>
         </div>
 
-        <div class="hdr-mid">
+        <div class="hdr-mid" *ngIf="!generated()">
           <button class="icon-btn" [disabled]="!undoRedo.canUndo()" (click)="fieldSvc.undo()" title="Undo (Ctrl+Z)">↩</button>
           <button class="icon-btn" [disabled]="!undoRedo.canRedo()" (click)="fieldSvc.redo()" title="Redo (Ctrl+Y)">↪</button>
           <div class="sep"></div>
@@ -55,22 +64,28 @@ import { PlacedField } from '../../models/placed-field';
         </div>
 
         <div class="hdr-right">
-          <!-- <button class="btn sec" (click)="save()" [disabled]="saving()">
-            {{ saving() ? 'Saving…' : 'Save' }}
-          </button> -->
-          <button class="btn pri" (click)="generate()" [disabled]="generating()">
-            {{ generating() ? 'Generating…' : 'Generate PDF' }}
-          </button>
+          <ng-container *ngIf="!generated()">
+            <button class="btn pri" (click)="generate()" [disabled]="generating()">
+              {{ generating() ? 'Generating…' : 'Generate PDF' }}
+            </button>
+          </ng-container>
+
+          <ng-container *ngIf="generated()">
+            <button class="btn sec" (click)="backToDesign()">Back to Design</button>
+            <button class="btn pri" (click)="onSubmit()" [disabled]="submitting()">
+              {{ submitting() ? 'Submitting…' : 'Submit' }}
+            </button>
+          </ng-container>
         </div>
       </header>
 
       <!-- ── Three-column body ── -->
       <div class="body">
 
-        <!-- Left panel: field type toolbar -->
-        <app-field-toolbar></app-field-toolbar>
+        <!-- Left panel: field type toolbar (design mode only) -->
+        <app-field-toolbar *ngIf="!generated()"></app-field-toolbar>
 
-        <!-- Center: PDF viewer with field overlay -->
+        <!-- Center: PDF viewer -->
         <main class="viewer-area">
           <div *ngIf="loading()" class="center-msg">Loading document…</div>
 
@@ -81,11 +96,14 @@ import { PlacedField } from '../../models/placed-field';
             [selectedId]="fieldSvc.selectedId()"
             [zoom]="viewerSvc.zoom()"
             [currentPage]="viewerSvc.currentPage()"
+            [showDesignOverlay]="!generated()"
+            [formData]="formData()"
             (fieldSelected)="fieldSvc.selectField($event)"
             (fieldDeleted)="fieldSvc.deleteField($event)"
             (fieldMoved)="onMoved($event)"
             (fieldResized)="onResized($event)"
             (fieldDropped)="onDropped($event)"
+            (formDataChange)="onFormDataChange($event)"
             (pagesLoaded)="viewerSvc.setTotalPages($event)"
             (pageChanged)="viewerSvc.setCurrentPage($event)"
             (zoomChanged)="viewerSvc.setZoom($event)"
@@ -97,9 +115,8 @@ import { PlacedField } from '../../models/placed-field';
           </div>
         </main>
 
-        <!-- Right panel: page thumbnails + field properties -->
-        <aside class="right">
-          <!-- Page thumbnails -->
+        <!-- Right panel: page thumbnails + field properties (design mode only) -->
+        <aside class="right" *ngIf="!generated()">
           <div class="thumbs">
             <div
               *ngFor="let p of pageRange()"
@@ -111,7 +128,6 @@ import { PlacedField } from '../../models/placed-field';
             </div>
           </div>
 
-          <!-- Selected field property editor -->
           <app-field-properties
             [field]="fieldSvc.selectedField()"
             (fieldChange)="onPropChange($event)"
@@ -182,20 +198,19 @@ export class PdfEditorComponent implements OnInit {
   readonly loading    = signal(false);
   readonly saving     = signal(false);
   readonly generating = signal(false);
+  readonly submitting = signal(false);
   readonly status     = signal('');
   readonly isErr      = signal(false);
+  readonly generated  = signal(false);
+  readonly formData = signal<Record<string, string | number | boolean | string[]>>({});
 
   private docId = signal<number | null>(null);
   get documentId(): number | null { return this.docId(); }
 
-  // fieldId -> whatever the user typed into that field in your on-screen editor
-  fieldValues: Record<string, string> = {};
-  /** Fields visible on the current page only */
   readonly pageFields = computed(() =>
     this.fieldSvc.fieldsByPage().get(this.viewerSvc.currentPage()) ?? []
   );
 
-  /** 1-based array for page thumbnail list */
   readonly pageRange = computed(() =>
     Array.from({ length: this.viewerSvc.totalPages() }, (_, i) => i + 1)
   );
@@ -251,13 +266,96 @@ export class PdfEditorComponent implements OnInit {
     if (!id) return;
     this.save();
     this.generating.set(true);
-    this.apiSvc.downloadPdf(id, this.fieldSvc.getFieldsForSave());
-    this.toast('Generating PDF…');
-    this.loadDocument(id); 
-    setTimeout(() => this.generating.set(false), 3500);
+    this.apiSvc.generatePdf({ documentId: id, fields: this.fieldSvc.getFieldsForSave() }).subscribe({
+      next: blob => {
+        // Load the generated PDF straight into the viewer — it now has real
+        // AcroForm fields, so we switch to fill mode instead of re-fetching.
+        this.pdfSrc.set(URL.createObjectURL(blob));
+        this.formData.set({});
+        this.generated.set(true);
+        this.generating.set(false);
+        this.toast('PDF generated — fields are now fillable below.');
+      },
+      error: err => {
+        this.generating.set(false);
+        this.toast(`Generate failed: ${err.message}`, true);
+      },
+    });
   }
 
-  // ── Field event handlers ────────────────────────────────
+  backToDesign(): void {
+    const id = this.docId();
+    if (!id) return;
+    this.generated.set(false);
+    this.formData.set({});
+    this.loadDocument(id); // reloads the original (pre-generate) template
+  }
+
+  /**
+   * "Submit" button. Reads the live AcroForm values the user typed directly
+   * into the rendered PDF (captured via (formDataChange)), maps the PDF field
+   * names (`f_<guid>`) back to the plain GUIDs /submit expects, and posts them.
+   */
+  onSubmit(): void {
+    const id = this.docId();
+    if (!id) return;
+
+    const values = this.toApiValues(this.formData());
+    if (Object.keys(values).length === 0) {
+      this.toast('Nothing to submit — fill in at least one field first.', true);
+      return;
+    }
+
+    this.submitting.set(true);
+    this.apiSvc.submit({ documentId: id, values, flatten: true }).subscribe({
+      next: blob => {
+        const url = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement('a'), {
+        href: url,
+        download: `document-${id}-submitted.pdf`,
+    });
+    a.click();
+    URL.revokeObjectURL(url);
+
+        this.pdfSrc.set(URL.createObjectURL(blob));  
+        this.formData.set({}); 
+        this.submitting.set(false);
+        this.toast('Submitted — showing the filled PDF.');
+      },
+      error: err => {
+        this.submitting.set(false);
+        this.toast(`Submit failed: ${err.message}`, true);
+      },
+    });
+  }
+
+  /** Every AcroForm edit the user makes directly in the rendered PDF lands here. */
+  onFormDataChange(data: Record<string, string | number | boolean | string[]>): void {
+    this.formData.set(data);
+  }
+
+  /**
+   * pdf.js gives us `{ f_<guid>: value }`. /submit expects `{ <guid>: value }`
+   * with checkbox/radio "on" states as the exact export-value string (e.g.
+   * "Yes"/"On"), not booleans — so booleans get normalized here.
+   */
+  private toApiValues(data: Record<string, string | number | boolean | string[]>): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [rawName, rawValue] of Object.entries(data)) {
+      if (!rawName.startsWith('f_')) continue;
+      const guid = rawName.slice(2).replace(/_/g, '-');
+      out[guid] = this.normalizeValue(rawValue);
+    }
+    return out;
+  }
+
+  private normalizeValue(v: unknown): string {
+    if (typeof v === 'boolean') return v ? 'Yes' : 'Off';
+    if (v == null) return '';
+    return String(v);
+  }
+
+  // ── Field event handlers (design mode) ──────────────────
 
   onDropped(e: DropOnViewerEvent): void {
     this.fieldSvc.addField({
@@ -285,6 +383,7 @@ export class PdfEditorComponent implements OnInit {
 
   @HostListener('document:keydown', ['$event'])
   onKey(e: KeyboardEvent): void {
+    if (this.generated()) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const tag  = (document.activeElement as HTMLElement)?.tagName;
 

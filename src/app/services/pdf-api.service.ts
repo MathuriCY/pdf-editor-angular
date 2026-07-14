@@ -50,5 +50,13 @@ export class PdfApiService {
   submit(req: SubmitFieldDataRequest): Observable<Blob> {
     return this.http.post(`${this.base}/submit`, req, { responseType: 'blob' });
   }
-  
+
+  downloadSubmittedPdf(documentId: number, values: Record<string, string>, flatten = true): void {
+    this.submit({ documentId, values, flatten }).subscribe(blob => {
+      const url = URL.createObjectURL(blob);
+      const a   = Object.assign(document.createElement('a'), { href: url, download: `document-${documentId}-submitted.pdf` });
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
 }

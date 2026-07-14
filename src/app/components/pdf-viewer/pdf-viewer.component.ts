@@ -3,7 +3,7 @@ import {
   EventEmitter, Input, OnChanges, OnDestroy, Output, ViewChild, inject,
 } from '@angular/core';
 import { NgIf } from '@angular/common';
-import { NgxExtendedPdfViewerModule, PageRenderedEvent, PagesLoadedEvent } from 'ngx-extended-pdf-viewer';
+import { NgxExtendedPdfViewerModule, PageRenderedEvent, PagesLoadedEvent, FormDataType } from 'ngx-extended-pdf-viewer';
 import { PdfViewerService } from '../../services/pdf-viewer.service';
 import { PdfCoordinateService } from '../../services/pdf-coordinate.service';
 import { FieldOverlayComponent } from '../field-overlay/field-overlay.component';
@@ -34,6 +34,8 @@ export interface DropOnViewerEvent {
         [showSidebarButton]="false"
         [textLayer]="true"
         [height]="'100%'"
+        [formData]="formData"
+        (formDataChange)="formDataChange.emit($event)"
         (pagesLoaded)="onPagesLoaded($event)"
         (pageRendered)="onPageRendered($event)"
         (pageChange)="onPageChange($event)"
@@ -41,7 +43,7 @@ export interface DropOnViewerEvent {
       ></ngx-extended-pdf-viewer>
 
       <div
-        *ngIf="pageBox"
+        *ngIf="pageBox && showDesignOverlay"
         class="overlay-layer"
         [style.left.px]="pageBox.left"
         [style.top.px]="pageBox.top"
@@ -73,6 +75,10 @@ export class PdfViewerComponent implements OnChanges, AfterViewInit, OnDestroy {
   @Input() selectedId: string | null = null;
   @Input() zoom        = 1;
   @Input() currentPage = 1;
+  /** Show the draggable/resizable design boxes (pre-generate only). */
+  @Input() showDesignOverlay = true;
+  /** Current pdf.js AcroForm values, keyed by the PDF field name (e.g. `f_<guid>`). */
+  @Input() formData: FormDataType = {};
 
   @Output() fieldSelected = new EventEmitter<string | null>();
   @Output() fieldDeleted  = new EventEmitter<string>();
@@ -82,6 +88,8 @@ export class PdfViewerComponent implements OnChanges, AfterViewInit, OnDestroy {
   @Output() pagesLoaded   = new EventEmitter<number>();
   @Output() pageChanged   = new EventEmitter<number>();
   @Output() zoomChanged   = new EventEmitter<number>();
+  /** Fires on every AcroForm edit the user makes directly in the rendered PDF. */
+  @Output() formDataChange = new EventEmitter<FormDataType>();
 
   @ViewChild('wrap') wrap!: ElementRef<HTMLElement>;
 
