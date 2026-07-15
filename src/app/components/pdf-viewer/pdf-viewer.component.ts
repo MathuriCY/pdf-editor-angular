@@ -9,6 +9,7 @@ import { PdfCoordinateService } from '../../services/pdf-coordinate.service';
 import { FieldOverlayComponent } from '../field-overlay/field-overlay.component';
 import { PlacedField } from '../../models/placed-field';
 import { FieldType } from '../../models/field-type';
+import { CSS_UNITS } from '../../models/page-info';
 
 export interface DropOnViewerEvent {
   fieldType: FieldType;
@@ -23,7 +24,7 @@ export interface DropOnViewerEvent {
   imports: [NgIf, NgxExtendedPdfViewerModule, FieldOverlayComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="wrap" #wrap (dragover)="$event.preventDefault()" (drop)="onDrop($event)">
+    <div class="wrap" #wrap (dragover)="$event.preventDefault()" (drop)="onDrop($event)" (scroll)="onScroll()">
 
       <ngx-extended-pdf-viewer
         *ngIf="pdfSrc"
@@ -64,7 +65,7 @@ export interface DropOnViewerEvent {
   `,
   styles: [`
     :host { display:block;flex:1 1 auto;min-width:0;height:100%; }
-    .wrap { position:relative;width:100%;height:100%;overflow:auto;background:#525659; }
+    .wrap { position:relative;width:100%;height:100%;overflow:auto;background:#525659;overflow-anchor:none; }
     .overlay-layer { position:absolute;inset:0;pointer-events:none; }
     ngx-extended-pdf-viewer { display:block;width:100%;height:100%; }
   `],
@@ -94,6 +95,7 @@ export class PdfViewerComponent implements OnChanges, AfterViewInit, OnDestroy {
   @ViewChild('wrap') wrap!: ElementRef<HTMLElement>;
 
   pageBox: { left: number; top: number; width: number; height: number } | null = null;
+  private scrollRaf: number | null = null; // ADD THIS
 
   get zoomStr(): string { return `${Math.round(this.zoom * 100)}%`; }
 
@@ -102,7 +104,19 @@ export class PdfViewerComponent implements OnChanges, AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void { this.updatePageBox(); }
   ngOnChanges(): void { this.updatePageBox(); }
-  ngOnDestroy(): void {}
+
+  // ADD THIS METHOD
+  onScroll(): void {
+    if (this.scrollRaf !== null) return;
+    this.scrollRaf = requestAnimationFrame(() => {
+      this.scrollRaf = null;
+      this.updatePageBox();
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (this.scrollRaf !== null) cancelAnimationFrame(this.scrollRaf); // UPDATED
+  }
 
   onPagesLoaded(e: PagesLoadedEvent): void {
     this.viewerSvc.setTotalPages(e.pagesCount);
@@ -149,8 +163,8 @@ export class PdfViewerComponent implements OnChanges, AfterViewInit, OnDestroy {
     this.fieldDropped.emit({
       fieldType: raw as FieldType,
       pageNumber: page.num,
-      pdfX: page.relX / this.zoom,
-      pdfY: page.relY / this.zoom,
+      pdfX: page.relX / (this.zoom * CSS_UNITS),
+      pdfY: page.relY / (this.zoom * CSS_UNITS),
     });
   }
 

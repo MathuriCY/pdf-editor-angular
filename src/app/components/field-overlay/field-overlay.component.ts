@@ -7,6 +7,7 @@ import { ResizableDirective, ResizeEvent } from '../../directives/resizable.dire
 import { PlacedField } from '../../models/placed-field';
 import { FIELD_TYPE_LABELS } from '../../models/field-type';
 import { PdfFieldService } from '../../services/pdf-field.service';
+import { CSS_UNITS } from '../../models/page-info';
 
 @Component({
   selector: 'app-field-overlay',
@@ -21,10 +22,10 @@ import { PdfFieldService } from '../../services/pdf-field.service';
         class="pf"
         [class.sel]="selectedId === f.id"
         [class.req]="f.required"
-        [style.left.px]="f.x * zoom"
-        [style.top.px]="f.y * zoom"
-        [style.width.px]="f.width * zoom"
-        [style.height.px]="f.height * zoom"
+        [style.left.px]="f.x * zoom * cssUnits"
+        [style.top.px]="f.y * zoom * cssUnits"
+        [style.width.px]="f.width * zoom * cssUnits"
+        [style.height.px]="f.height * zoom * cssUnits"
         [style.transform]="'rotate(' + f.rotation + 'deg)'"
         appResizable
         [handles]="['se','sw','ne','nw']"
@@ -65,6 +66,7 @@ import { PdfFieldService } from '../../services/pdf-field.service';
   `],
 })
 export class FieldOverlayComponent implements OnChanges {
+  readonly cssUnits = CSS_UNITS; 
   @Input() fields:     PlacedField[] = [];
   @Input() selectedId: string | null  = null;
   @Input() zoom = 1;
@@ -97,7 +99,11 @@ export class FieldOverlayComponent implements OnChanges {
     this.fieldSelected.emit(f.id); this.ctx = null;
     const sx = e.clientX, sy = e.clientY, ox = f.x, oy = f.y;
     const mv = (ev: MouseEvent) => this.zone.run(() =>
-      this.fieldMoved.emit({ id: f.id, x: ox + (ev.clientX - sx) / this.zoom, y: oy + (ev.clientY - sy) / this.zoom })
+    this.fieldMoved.emit({
+        id: f.id,
+        x: ox + (ev.clientX - sx) / (this.zoom * CSS_UNITS),
+        y: oy + (ev.clientY - sy) / (this.zoom * CSS_UNITS)
+      })
     );
     const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
     this.zone.runOutsideAngular(() => { document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); });
@@ -106,10 +112,10 @@ export class FieldOverlayComponent implements OnChanges {
   del(f: PlacedField, e: MouseEvent): void { e.stopPropagation(); this.fieldDeleted.emit(f.id); }
 
   onResize(f: PlacedField, ev: ResizeEvent): void {
-    this.fieldResized.emit({ id: f.id, width: ev.width / this.zoom, height: ev.height / this.zoom });
+  this.fieldResized.emit({ id: f.id, width: ev.width / (this.zoom * CSS_UNITS), height: ev.height / (this.zoom * CSS_UNITS) });
   }
   onResizeEnd(f: PlacedField, ev: ResizeEvent): void {
-    this.fieldResized.emit({ id: f.id, width: ev.width / this.zoom, height: ev.height / this.zoom });
+    this.fieldResized.emit({ id: f.id, width: ev.width / (this.zoom * CSS_UNITS), height: ev.height / (this.zoom * CSS_UNITS) });
   }
 
   onCtx(e: MouseEvent, f: PlacedField): void {
