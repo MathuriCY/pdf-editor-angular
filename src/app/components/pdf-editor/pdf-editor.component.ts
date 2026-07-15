@@ -288,6 +288,7 @@ export class PdfEditorComponent implements OnInit {
     if (!id) return;
     this.generated.set(false);
     this.formData.set({});
+    this.fieldSvc.setFields([]);  // clears the overlay boxes, but we still have the original fields in memory
     this.loadDocument(id); // reloads the original (pre-generate) template
   }
 
